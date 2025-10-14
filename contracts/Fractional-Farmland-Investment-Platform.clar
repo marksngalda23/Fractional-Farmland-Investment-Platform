@@ -220,3 +220,89 @@
     (ok true)
   )
 )
+
+
+(define-map investor-performance
+  principal
+  {
+    total-invested: uint,
+    total-withdrawn: uint,
+    total-yield-earned: uint,
+    pools-participated: uint,
+    last-activity: uint
+  }
+)
+
+(define-read-only (get-investor-performance (investor principal))
+  (default-to 
+    { 
+      total-invested: u0, 
+      total-withdrawn: u0, 
+      total-yield-earned: u0, 
+      pools-participated: u0, 
+      last-activity: u0 
+    }
+    (map-get? investor-performance investor)
+  )
+)
+
+(define-read-only (calculate-investor-roi (investor principal))
+  (let (
+    (perf-data (get-investor-performance investor))
+    (total-invested (get total-invested perf-data))
+    (total-yield-earned (get total-yield-earned perf-data))
+  )
+    (if (is-eq total-invested u0)
+      (ok u0)
+      (ok (/ (* total-yield-earned u10000) total-invested))
+    )
+  )
+)
+
+(define-read-only (get-investor-portfolio-value (investor principal))
+  (let (
+    (perf-data (get-investor-performance investor))
+    (total-invested (get total-invested perf-data))
+    (total-withdrawn (get total-withdrawn perf-data))
+    (total-yield-earned (get total-yield-earned perf-data))
+  )
+    (ok (+ (- total-invested total-withdrawn) total-yield-earned))
+  )
+)
+
+(define-private (update-performance-on-invest (investor principal) (amount uint) (is-new-pool bool))
+  (let (
+    (current-perf (get-investor-performance investor))
+    (new-total-invested (+ (get total-invested current-perf) amount))
+    (new-pools-count (if is-new-pool 
+                       (+ (get pools-participated current-perf) u1)
+                       (get pools-participated current-perf)))
+  )
+    (map-set investor-performance
+      investor
+      {
+        total-invested: new-total-invested,
+        total-withdrawn: (get total-withdrawn current-perf),
+        total-yield-earned: (get total-yield-earned current-perf),
+        pools-participated: new-pools-count,
+        last-activity: stacks-block-height
+      }
+    )
+    true
+  )
+)
+
+(define-private (update-performance-on-yield (investor principal) (yield-amount uint))
+  (let ((current-perf (get-investor-performance investor)))
+    (map-set investor-performance
+      investor
+      (merge current-perf 
+        { 
+          total-yield-earned: (+ (get total-yield-earned current-perf) yield-amount),
+          last-activity: stacks-block-height
+        }
+      )
+    )
+    true
+  )
+)
