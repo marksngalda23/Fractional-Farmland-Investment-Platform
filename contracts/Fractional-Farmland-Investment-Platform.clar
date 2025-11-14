@@ -306,3 +306,70 @@
     true
   )
 )
+
+
+(define-map pool-milestones
+  { pool-id: uint, milestone-id: uint }
+  {
+    target-percentage: uint,
+    bonus-percentage: uint,
+    reached: bool,
+    reached-at: uint
+  }
+)
+
+(define-map pool-milestone-count
+  uint
+  uint
+)
+
+(define-read-only (get-pool-milestone (pool-id uint) (milestone-id uint))
+  (map-get? pool-milestones { pool-id: pool-id, milestone-id: milestone-id })
+)
+
+(define-read-only (get-milestone-count (pool-id uint))
+  (default-to u0 (map-get? pool-milestone-count pool-id))
+)
+
+(define-read-only (get-pool-funding-progress (pool-id uint))
+  (let ((pool-data (unwrap! (get-pool pool-id) ERR-POOL-NOT-FOUND)))
+    (ok (/ (* (get funds-raised pool-data) u10000) (get target-amount pool-data)))
+  )
+)
+
+(define-public (create-milestone (pool-id uint) (target-percentage uint) (bonus-percentage uint))
+  (let (
+    (pool-data (unwrap! (get-pool pool-id) ERR-POOL-NOT-FOUND))
+    (milestone-count (get-milestone-count pool-id))
+    (new-milestone-id (+ milestone-count u1))
+  )
+    (asserts! (is-eq tx-sender (get owner pool-data)) ERR-NOT-AUTHORIZED)
+    (asserts! (<= target-percentage u10000) ERR-INVALID-AMOUNT)
+    (asserts! (<= bonus-percentage u10000) ERR-INVALID-AMOUNT)
+    (map-set pool-milestones
+      { pool-id: pool-id, milestone-id: new-milestone-id }
+      {
+        target-percentage: target-percentage,
+        bonus-percentage: bonus-percentage,
+        reached: false,
+        reached-at: u0
+      }
+    )
+    (map-set pool-milestone-count pool-id new-milestone-id)
+    (ok new-milestone-id)
+  )
+)
+
+(define-private (check-single-milestone (pool-id uint) (progress uint) (milestone-id uint))
+  (match (get-pool-milestone pool-id milestone-id)
+    milestone-data
+      (if (and (>= progress (get target-percentage milestone-data)) (not (get reached milestone-data)))
+        (map-set pool-milestones
+          { pool-id: pool-id, milestone-id: milestone-id }
+          (merge milestone-data { reached: true, reached-at: stacks-block-height })
+        )
+        true
+      )
+    true
+  )
+)
